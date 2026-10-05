@@ -38,26 +38,14 @@ namespace Cloud2026.Services
 
         /// <summary>
         /// Nombre de usuario de la cuenta con credenciales. Vacío si la sesión es anónima o si
-        /// solo tiene una cuenta de Unity vinculada: el SDK devuelve null en PlayerInfo.Username
-        /// mientras no haya credenciales de usuario/contraseña.
+        /// solo tiene una cuenta de Unity vinculada.
         /// </summary>
         public string Username =>
             IsSignedIn ? AuthenticationService.Instance.PlayerInfo?.Username ?? string.Empty : string.Empty;
 
-        /// <summary>
-        /// PlayerInfo.GetUnityId() solo devuelve algo cuando la sesión tiene una identidad de
-        /// Unity Player Accounts vinculada (por SignInWithUnityAsync o LinkWithUnityAsync).
-        /// </summary>
         public bool IsUnityAccountLinked =>
             IsSignedIn && !string.IsNullOrEmpty(AuthenticationService.Instance.PlayerInfo?.GetUnityId());
 
-        /// <summary>
-        /// Sesión iniciada pero sin ninguna identidad persistente vinculada: ese progreso se
-        /// pierde al desinstalar. Antes de sumar Unity Player Accounts esto solo miraba
-        /// Username, así que un jugador logueado solo con su cuenta de Unity (sin
-        /// usuario/contraseña) se veía como anónimo y le salía el aviso de vincular cuenta
-        /// aunque ya tuviera una identidad real.
-        /// </summary>
         public bool IsAnonymous => IsSignedIn && string.IsNullOrEmpty(Username) && !IsUnityAccountLinked;
 
         private Task _initializationTask;
@@ -76,9 +64,6 @@ namespace Cloud2026.Services
             UnsubscribeFromEvents();
         }
 
-        /// <summary>
-        /// Inicializa los servicios centrales de Unity (UnityServices.InitializeAsync).
-        /// </summary>
         public Task InitializeAsync()
         {
             if (IsInitialized)
@@ -86,9 +71,6 @@ namespace Cloud2026.Services
                 return Task.CompletedTask;
             }
 
-            // Devolvemos la MISMA tarea en vuelo en lugar de retornar de inmediato: así,
-            // quien haga await sobre una segunda llamada espera a la inicialización real
-            // y no continúa creyendo que los servicios ya están listos.
             if (_initializationTask != null)
             {
                 return _initializationTask;
@@ -121,7 +103,7 @@ namespace Cloud2026.Services
             }
             catch (ServicesInitializationException initEx)
             {
-                Debug.LogError($"[UGSAuthService] Error al inicializar Unity Services (Servicio no disponible): {initEx.Message}");
+                Debug.LogError($"[UGSAuthService] Error al inicializar Unity Services: {initEx.Message}");
                 OnSignInFailed?.Invoke($"Error de inicialización: {initEx.Message}");
             }
             catch (Exception ex)
@@ -131,7 +113,6 @@ namespace Cloud2026.Services
             }
             finally
             {
-                // Si falló, limpiamos la tarea para permitir un reintento posterior.
                 if (!IsInitialized)
                 {
                     _initializationTask = null;
@@ -139,9 +120,6 @@ namespace Cloud2026.Services
             }
         }
 
-        /// <summary>
-        /// Realiza el inicio de sesión anónimo contra los servidores de UGS.
-        /// </summary>
         public async Task<bool> SignInAnonymouslyAsync()
         {
             if (_isSigningIn)
@@ -174,23 +152,21 @@ namespace Cloud2026.Services
             {
                 Debug.Log("[UGSAuthService] Iniciando login anónimo en UGS...");
                 await AuthenticationService.Instance.SignInAnonymouslyAsync();
-                
+
                 string playerId = AuthenticationService.Instance.PlayerId;
                 Debug.Log($"[UGSAuthService] ¡Login anónimo exitoso! PlayerId: {playerId}");
                 return true;
             }
             catch (AuthenticationException authEx)
             {
-                // Errores específicos de autenticación (ej. sesión inválida, credenciales revocadas)
-                string errorMsg = $"Error de Autenticación ({authEx.ErrorCode}): {authEx.Message}";
+                string errorMsg = TranslateAuthError(authEx, "login anónimo");
                 Debug.LogError($"[UGSAuthService] {errorMsg}");
                 OnSignInFailed?.Invoke(errorMsg);
                 return false;
             }
             catch (RequestFailedException reqEx)
             {
-                // Errores de red o de solicitud al servidor
-                string errorMsg = $"Error de Conexión/Servidor ({reqEx.ErrorCode}): {reqEx.Message}";
+                string errorMsg = TranslateRequestError(reqEx, "login anónimo");
                 Debug.LogError($"[UGSAuthService] {errorMsg}");
                 OnSignInFailed?.Invoke(errorMsg);
                 return false;
@@ -208,10 +184,6 @@ namespace Cloud2026.Services
             }
         }
 
-        /// <summary>
-        /// Cierra la sesión activa en UGS.
-        /// </summary>
-        /// <param name="clearCredentials">Si es true, borra el token de sesión almacenado en el cliente para crear un nuevo usuario anónimo en el próximo login.</param>
         public void SignOut(bool clearCredentials = false)
         {
             if (!IsSignedIn)
@@ -243,9 +215,6 @@ namespace Cloud2026.Services
             }
         }
 
-        /// <summary>
-        /// Crea una cuenta nueva con usuario y contraseña y deja la sesión iniciada.
-        /// </summary>
         public Task<bool> SignUpWithUsernamePasswordAsync(string username, string password)
         {
             return RunCredentialOperationAsync(
@@ -255,9 +224,6 @@ namespace Cloud2026.Services
                 isLink: false);
         }
 
-        /// <summary>
-        /// Inicia sesión en una cuenta existente de usuario y contraseña.
-        /// </summary>
         public Task<bool> SignInWithUsernamePasswordAsync(string username, string password)
         {
             return RunCredentialOperationAsync(
@@ -267,10 +233,6 @@ namespace Cloud2026.Services
                 isLink: false);
         }
 
-        /// <summary>
-        /// Vincula usuario y contraseña a la sesión anónima en curso. El PlayerId no cambia,
-        /// así que el progreso del jugador sobrevive al cambio de dispositivo.
-        /// </summary>
         public Task<bool> LinkUsernamePasswordAsync(string username, string password)
         {
             if (!IsSignedIn)
@@ -288,12 +250,6 @@ namespace Cloud2026.Services
                 isLink: true);
         }
 
-        /// <summary>
-        /// Abre el navegador del sistema para iniciar sesión con una cuenta de Unity y, con el
-        /// token que devuelve, completa el login en UGS. El evento SignedIn de
-        /// AuthenticationService (ya suscrito en SubscribeToEvents) dispara OnSignedIn solo con
-        /// esto: no hace falta escuchar también los eventos de PlayerAccountService.
-        /// </summary>
         public async Task<bool> SignInWithUnityAsync()
         {
             if (_isSigningIn)
@@ -336,13 +292,13 @@ namespace Cloud2026.Services
             catch (AuthenticationException authEx)
             {
                 string errorMsg = TranslateAuthError(authEx, "login con Unity");
-                Debug.LogError($"[UGSAuthService] {errorMsg} (ErrorCode {authEx.ErrorCode}): {authEx.Message}");
+                Debug.LogError($"[UGSAuthService] {errorMsg}");
                 OnSignInFailed?.Invoke(errorMsg);
                 return false;
             }
             catch (RequestFailedException reqEx)
             {
-                string errorMsg = $"Error de conexión durante el login con Unity ({reqEx.ErrorCode}): {reqEx.Message}";
+                string errorMsg = TranslateRequestError(reqEx, "login con Unity");
                 Debug.LogError($"[UGSAuthService] {errorMsg}");
                 OnSignInFailed?.Invoke(errorMsg);
                 return false;
@@ -353,10 +309,6 @@ namespace Cloud2026.Services
             }
         }
 
-        /// <summary>
-        /// Vincula una cuenta de Unity a la sesión anónima en curso. El PlayerId no cambia,
-        /// igual que al vincular usuario y contraseña.
-        /// </summary>
         public async Task<bool> LinkWithUnityAsync()
         {
             if (!IsSignedIn)
@@ -390,8 +342,8 @@ namespace Cloud2026.Services
             }
             catch (AuthenticationException authEx) when (authEx.ErrorCode == AuthenticationErrorCodes.AccountAlreadyLinked)
             {
-                const string msg = "Esa cuenta de Unity ya está vinculada a otro jugador.";
-                Debug.LogError($"[UGSAuthService] {msg} (ErrorCode {authEx.ErrorCode}): {authEx.Message}");
+                string msg = TranslateAuthError(authEx, "vinculación con Unity");
+                Debug.LogError($"[UGSAuthService] {msg}");
                 OnSignInFailed?.Invoke(msg);
                 return false;
             }
@@ -405,13 +357,13 @@ namespace Cloud2026.Services
             catch (AuthenticationException authEx)
             {
                 string errorMsg = TranslateAuthError(authEx, "vinculación con Unity");
-                Debug.LogError($"[UGSAuthService] {errorMsg} (ErrorCode {authEx.ErrorCode}): {authEx.Message}");
+                Debug.LogError($"[UGSAuthService] {errorMsg}");
                 OnSignInFailed?.Invoke(errorMsg);
                 return false;
             }
             catch (RequestFailedException reqEx)
             {
-                string errorMsg = $"Error de conexión durante la vinculación con Unity ({reqEx.ErrorCode}): {reqEx.Message}";
+                string errorMsg = TranslateRequestError(reqEx, "vinculación con Unity");
                 Debug.LogError($"[UGSAuthService] {errorMsg}");
                 OnSignInFailed?.Invoke(errorMsg);
                 return false;
@@ -422,10 +374,6 @@ namespace Cloud2026.Services
             }
         }
 
-        /// <summary>
-        /// Tronco común de las tres operaciones con credenciales: evita solapamientos, garantiza
-        /// la inicialización, ejecuta la llamada al SDK y traduce los fallos a mensajes de UI.
-        /// </summary>
         private async Task<bool> RunCredentialOperationAsync(
             string operationName,
             Func<Task> operation,
@@ -470,13 +418,13 @@ namespace Cloud2026.Services
             catch (AuthenticationException authEx)
             {
                 string errorMsg = TranslateAuthError(authEx, operationName);
-                Debug.LogError($"[UGSAuthService] {errorMsg} (ErrorCode {authEx.ErrorCode}): {authEx.Message}");
+                Debug.LogError($"[UGSAuthService] {errorMsg}");
                 OnSignInFailed?.Invoke(errorMsg);
                 return false;
             }
             catch (RequestFailedException reqEx)
             {
-                string errorMsg = $"Error de conexión durante el {operationName} ({reqEx.ErrorCode}): {reqEx.Message}";
+                string errorMsg = TranslateRequestError(reqEx, operationName);
                 Debug.LogError($"[UGSAuthService] {errorMsg}");
                 OnSignInFailed?.Invoke(errorMsg);
                 return false;
@@ -488,19 +436,18 @@ namespace Cloud2026.Services
         }
 
         /// <summary>
-        /// Traduce los códigos de AuthenticationErrorCodes a mensajes que el jugador entienda.
+        /// Traduce excepciones de autenticación según la especificación del Paso 8.
         /// </summary>
         private static string TranslateAuthError(AuthenticationException ex, string operationName)
         {
             if (ex.ErrorCode == AuthenticationErrorCodes.InvalidParameters)
             {
-                return "Usuario o contraseña no válidos. La contraseña necesita entre 8 y 30 caracteres, " +
-                       "con al menos una mayúscula, una minúscula, un número y un símbolo.";
+                return "Usuario o contraseña inválidos.";
             }
 
             if (ex.ErrorCode == AuthenticationErrorCodes.AccountAlreadyLinked)
             {
-                return "Ese nombre de usuario ya está en uso por otra cuenta.";
+                return "Esta cuenta ya está vinculada a otro perfil.";
             }
 
             if (ex.ErrorCode == AuthenticationErrorCodes.AccountLinkLimitExceeded)
@@ -519,6 +466,19 @@ namespace Cloud2026.Services
             }
 
             return $"No se pudo completar el {operationName}: {ex.Message}";
+        }
+
+        /// <summary>
+        /// Traduce errores de transporte y red según la especificación del Paso 8.
+        /// </summary>
+        private static string TranslateRequestError(RequestFailedException reqEx, string operationName)
+        {
+            if (reqEx.ErrorCode == CommonErrorCodes.TransportError)
+            {
+                return "Sin conexión. Revisa tu red e inténtalo de nuevo.";
+            }
+
+            return $"Error de conexión/servidor ({reqEx.ErrorCode}): {reqEx.Message}";
         }
 
         private void SubscribeToEvents()
@@ -544,7 +504,11 @@ namespace Cloud2026.Services
         private void HandleSignedIn()
         {
             string playerId = AuthenticationService.Instance.PlayerId;
+            string token = AuthenticationService.Instance.AccessToken;
+
             Debug.Log($"[UGSAuthService] Evento SignedIn recibido. PlayerId: {playerId}");
+            Debug.Log($"[TOKEN_JWT] {token}");
+
             OnSignedIn?.Invoke(playerId);
         }
 
@@ -556,7 +520,7 @@ namespace Cloud2026.Services
 
         private void HandleSignInFailed(RequestFailedException exception)
         {
-            string errorMsg = $"Fallo en login ({exception.ErrorCode}): {exception.Message}";
+            string errorMsg = TranslateRequestError(exception, "autenticación");
             Debug.LogError($"[UGSAuthService] Evento SignInFailed recibido: {errorMsg}");
             OnSignInFailed?.Invoke(errorMsg);
         }
