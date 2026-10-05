@@ -360,10 +360,12 @@ MonoBehaviour:
   passwordInput: {fileID: 740362825}
   signUpButton: {fileID: 1477835590}
   signInButton: {fileID: 1533619621}
+  signInWithUnityButton: {fileID: 0}
   linkGroup: {fileID: 287254351}
   linkUsernameInput: {fileID: 514369286}
   linkPasswordInput: {fileID: 1692718803}
   linkButton: {fileID: 1048613842}
+  linkWithUnityButton: {fileID: 0}
   accountStateText: {fileID: 138300706}
   statusText: {fileID: 1367238421}
   loadingIndicator: {fileID: 1705716174}
@@ -2061,6 +2063,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Cloud2026.Runtime::Cloud2026.Core.GameBootstrap
   authService: {fileID: 657291887}
+  cloudCodeService: {fileID: 0}
+  turnMatchService: {fileID: 0}
+  cloudSaveService: {fileID: 0}
   persistAcrossScenes: 1
   autoLoginAnonymous: 0
 --- !u!114 &657291887
