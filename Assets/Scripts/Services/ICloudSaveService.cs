@@ -1,17 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
+using Cloud2026.Core;
+using Cloud2026.Models;
 
 namespace Cloud2026.Services
 {
     /// <summary>
     /// Contrato para guardar y cargar el perfil del jugador en Cloud Save. Desacopla la UI y
     /// el gameplay del SDK, igual que ICloudCodeService con Cloud Code.
-    ///
-    /// Este servicio persiste progreso propio del jugador (nivel, XP, misiones completadas,
-    /// desbloqueos de UI), no economía: no decide saldo, precio ni recompensa. Esta semana la
-    /// lección es el mecanismo de guardado en sí (SaveAsync/LoadAsync, conflictos, límites de
-    /// tamaño); la autoridad del servidor sobre el VALOR del progreso llega con Cloud Code +
-    /// Economy en las semanas 6-8.
     /// </summary>
     public interface ICloudSaveService
     {
@@ -19,22 +16,35 @@ namespace Cloud2026.Services
         event Action<string> OnCallFailed;
 
         /// <summary>
-        /// True si los servicios están inicializados y hay sesión iniciada. Cloud Save Player
-        /// Data exige un jugador autenticado: sin sesión no hay a quién guardarle nada.
+        /// True si los servicios están inicializados y hay sesión iniciada.
         /// </summary>
         bool IsReady { get; }
 
         /// <summary>
-        /// Carga el perfil, comparando la copia de la nube contra la última copia guardada en
-        /// caché local. Ver <see cref="CloudSaveOutcome"/> para qué significa cada resultado.
+        /// Diccionario de Write Locks devueltos por el servidor tras la última operación.
+        /// </summary>
+        IDictionary<string, string> CurrentWriteLocks { get; }
+
+        /// <summary>
+        /// Carga el perfil comparando con la caché local.
         /// </summary>
         Task<PlayerProfileLoadResult> LoadProfileAsync();
 
         /// <summary>
-        /// Sella el perfil con la hora actual y lo sube a Cloud Save. Devuelve false si la
-        /// llamada falla o si el perfil no cabe dentro del límite de tamaño de este ejercicio;
-        /// el motivo va al log y a <see cref="OnCallFailed"/>.
+        /// Sella el perfil y lo sube a Cloud Save.
         /// </summary>
         Task<bool> SaveProfileAsync(PlayerProfile profile);
+
+        /// <summary>
+        /// PASO 3: Guardado unificado de las tres llaves (perfil, inventario, progreso)
+        /// en una sola llamada batch HTTP.
+        /// </summary>
+        Task<bool> GuardarEstadoCompletoAsync(PerfilJugador perfil, InventarioJugador inventario, ProgresoJugador progreso);
+
+        /// <summary>
+        /// PASO 4: Carga unificada de las tres llaves con LoadAsync.
+        /// Gestiona automáticamente el caso de jugador nuevo (diccionario vacío) devolviendo instancias por defecto.
+        /// </summary>
+        Task<(PerfilJugador perfil, InventarioJugador inventario, ProgresoJugador progreso)> CargarEstadoCompletoAsync();
     }
 }
